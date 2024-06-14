@@ -177,7 +177,7 @@ This screenshot shows the command line output for the SDC Consumer script. It lo
 
 This screenshot shows the SDC Consumer GUI. It includes real-time plots for three data streams (Data1 = EMG signal, Data2 = respiratory signal, and Data3 = EMG signal) and a console for updates.
 
-![SDC Consumer GUI](../docs/SDC_Consumer_GUI.PNG)
+![SDC Consumer GUI](../docs/SDC_consumer_GUI.PNG)
 
 ## Notes
 
