@@ -222,9 +222,9 @@ class SDCGui:
         self.data1 = {'time': [], 'value': []}
         self.data2 = {'time': [], 'value': []}
         self.data3 = {'time': [], 'value': []}
-        self.ax1.set_title("Data1")
-        self.ax2.set_title("Data2")
-        self.ax3.set_title("Data3")
+        self.ax1.set_title("Heartrate")
+        self.ax2.set_title("Sp02")
+        self.ax3.set_title("Bloodpressure")
         self.ax1.set_ylabel("Value")
         self.ax2.set_ylabel("Value")
         self.ax3.set_ylabel("Value")

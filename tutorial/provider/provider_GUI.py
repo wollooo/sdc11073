@@ -5,12 +5,11 @@ Description: <provides a graphical user interface (GUI) for both an SDC (Service
 Author: <Kevin Wollowski>
 Company: <if(is)>
 Email: <wollowski@internet-sicherheit.de>
-Date: <14.06.2024>
-Version: <0.1>
+Date: <18.06.2024>
+Version: <0.2>
 
 License: <MIT License>
 """
-
 
 import uuid
 import time
@@ -36,7 +35,7 @@ process = None  # Variable to hold the process for the SDC device service
 parent_conn = None  # To track the parent connection for inter-process communication
 
 class QueueHandler(logging.Handler):
-    """ Custom logging handler that sends logs to a queue. """
+    """Custom logging handler that sends logs to a queue."""
     def __init__(self, log_queue):
         super().__init__()
         self.log_queue = log_queue
@@ -47,7 +46,7 @@ class QueueHandler(logging.Handler):
         self.log_queue.put(log_entry)
 
 def update_console():
-    """ Update the console output with messages from the log queue. """
+    """Update the console output with messages from the log queue."""
     while not log_queue.empty():
         msg = log_queue.get_nowait()
         console_output.configure(state='normal')
@@ -64,12 +63,26 @@ formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 log_handler.setFormatter(formatter)
 logger.addHandler(log_handler)
 
-def simulate_signals(duration_ecg=10, heart_rate=160, duration_rsp=10, respiratory_rate=15, duration_emg=10, burst_number=2, burst_duration=1):
-    """ Simulate ECG, respiratory, and EMG signals. """
+def simulate_signals(duration_ecg=10, heart_rate=160, duration_spo2=10, mean_spo2=98, std_spo2=1, duration_bp=10, mean_systolic=120, std_systolic=10, mean_diastolic=80, std_diastolic=5):
+    """Simulate ECG, SpO2, and Blood Pressure signals."""
+    
+    # Use nk.ecg_simulate to simulate ECG signal
     ecg_signal = nk.ecg_simulate(duration=duration_ecg, heart_rate=heart_rate, method="simple")
-    rsp_signal = nk.rsp_simulate(duration=duration_rsp, respiratory_rate=respiratory_rate, method="breathmetrics")
-    emg_signal = nk.emg_simulate(duration=duration_emg, burst_number=burst_number, burst_duration=burst_duration)
-    return iter(ecg_signal), iter(rsp_signal), iter(emg_signal)
+    
+    # Use nk.signal_simulate to simulate SpO2 with noise
+    def simulate_spo2(duration, mean, std):
+        return nk.signal_simulate(duration=duration, sampling_rate=100, frequency=0.1, noise=std) + mean - std/2
+
+    # Use nk.signal_simulate to simulate Blood Pressure (systolic and diastolic)
+    def simulate_bp(duration, mean_sys, std_sys, mean_dia, std_dia):
+        systolic = nk.signal_simulate(duration=duration, sampling_rate=100, frequency=0.2, noise=std_sys) + mean_sys - std_sys/2
+        diastolic = nk.signal_simulate(duration=duration, sampling_rate=100, frequency=0.2, noise=std_dia) + mean_dia - std_dia/2
+        return systolic, diastolic
+
+    spo2_signal = simulate_spo2(duration=duration_spo2, mean=mean_spo2, std=std_spo2)
+    bp_systolic_signal, bp_diastolic_signal = simulate_bp(duration=duration_bp, mean_sys=mean_systolic, std_sys=std_systolic, mean_dia=mean_diastolic, std_dia=std_diastolic)
+
+    return iter(ecg_signal), iter(spo2_signal), iter(bp_systolic_signal)#, iter(bp_diastolic_signal)
 
 def sdc_device_service(conn, adapter, manufacturer, model_name, model_version, model_url, firmware_version, friendly_name,
                        initial_metric_value, active_determination_period, validity, activation_state):
@@ -83,7 +96,7 @@ def sdc_device_service(conn, adapter, manufacturer, model_name, model_version, m
 
     try:
         # Generate simulated signals
-        ecg_signal_iterator, rsp_signal_iterator, emg_signal_iterator = simulate_signals()
+        ecg_signal_iterator, spo2_signal_iterator, bp_systolic_signal_iterator = simulate_signals()
 
         conn.send("SDC Device service started.")
         child_logger.info("SDC Device service started.")
@@ -133,37 +146,43 @@ def sdc_device_service(conn, adapter, manufacturer, model_name, model_version, m
                 ecg_value = next(ecg_signal_iterator)
 
             try:
-                rsp_value = next(rsp_signal_iterator)
+                spo2_value = next(spo2_signal_iterator)
             except StopIteration:
-                rsp_signal_iterator = iter(simulate_signals()[1])
-                rsp_value = next(rsp_signal_iterator)
+                spo2_signal_iterator = iter(simulate_signals()[1])
+                spo2_value = next(spo2_signal_iterator)
 
             try:
-                emg_value = next(emg_signal_iterator)
+                bp_systolic_value = next(bp_systolic_signal_iterator)
             except StopIteration:
-                emg_signal_iterator = iter(simulate_signals()[2])
-                emg_value = next(emg_signal_iterator)
+                bp_systolic_signal_iterator = iter(simulate_signals()[2])
+                bp_systolic_value = next(bp_systolic_signal_iterator)
+
+            # try:
+            #     bp_diastolic_value = next(bp_diastolic_signal_iterator)
+            # except StopIteration:
+            #     bp_diastolic_signal_iterator = iter(simulate_signals()[3])
+            #     bp_diastolic_value = next(bp_diastolic_signal_iterator)
 
             with my_mdib.mdibUpdateTransaction() as mgr:
                 for metricDescr in allMetricDescrs:
                     if metricDescr.handle == "numeric.ch0.vmd0":
                         st = mgr.getMetricState(metricDescr.handle)
+                        st.metricValue.Value = spo2_value
+                        conn.send(f"Updated {metricDescr.handle} metric value to {spo2_value:.2f}")
+                        child_logger.info(f"Updated {metricDescr.handle} metric value to {spo2_value:.2f}")
+                    elif metricDescr.handle == "numeric.ch0.vmd1":
+                        st = mgr.getMetricState(metricDescr.handle)
                         st.metricValue.Value = ecg_value
                         conn.send(f"Updated {metricDescr.handle} metric value to {ecg_value:.2f}")
                         child_logger.info(f"Updated {metricDescr.handle} metric value to {ecg_value:.2f}")
-                    elif metricDescr.handle == "numeric.ch0.vmd1":
-                        st = mgr.getMetricState(metricDescr.handle)
-                        st.metricValue.Value = rsp_value
-                        conn.send(f"Updated {metricDescr.handle} metric value to {rsp_value:.2f}")
-                        child_logger.info(f"Updated {metricDescr.handle} metric value to {rsp_value:.2f}")
                     elif metricDescr.handle == "numeric.ch1.vmd0":
                         st = mgr.getMetricState(metricDescr.handle)
-                        st.metricValue.Value = emg_value
-                        conn.send(f"Updated {metricDescr.handle} metric value to {emg_value:.2f}")
-                        child_logger.info(f"Updated {metricDescr.handle} metric value to {emg_value:.2f}")
+                        st.metricValue.Value = f"{bp_systolic_value:.2f}"#/{bp_systolic_value:.2f}"
+                        conn.send(f"Updated {metricDescr.handle} metric value to {st.metricValue.Value}")
+                        child_logger.info(f"Updated {metricDescr.handle} metric value to {st.metricValue.Value}")
 
             # Reduce the sleep time to send updates more frequently
-            time.sleep(0.01)
+            time.sleep(1)  # Adjusted time for more realistic updates
 
         sdcDevice.stopAll()
         conn.send("SDC Device service stopped.")
@@ -175,7 +194,7 @@ def sdc_device_service(conn, adapter, manufacturer, model_name, model_version, m
         conn.close()
 
 def setLocalEnsembleContext(mdib, ensemble):
-    """ Set the local ensemble context in the MDIB. """
+    """Set the local ensemble context in the MDIB."""
     descriptorContainer = mdib.descriptions.NODETYPE.getOne(domTag('EnsembleContextDescriptor'))
     if not descriptorContainer:
         logger.error("No ensemble contexts in mdib")
@@ -196,7 +215,7 @@ def setLocalEnsembleContext(mdib, ensemble):
         newEnsState.Identification = [pmtypes.InstanceIdentifier(root="1.2.3", extensionString=ensemble)]
 
 def on_start_button():
-    """ Start the SDC device service when the start button is clicked. """
+    """Start the SDC device service when the start button is clicked."""
     global process, parent_conn
     if process is not None and process.is_alive():
         return
@@ -228,16 +247,16 @@ def on_start_button():
     root.after(100, lambda: poll_pipe(parent_conn))
 
 def poll_pipe(conn):
-    """ Poll the pipe for messages from the SDC device service. """
+    """Poll the pipe for messages from the SDC device service."""
     try:
         if conn.poll():
             msg = conn.recv()
             logger.info(msg)
             # Update the metric value in the GUI if received
-            if "Updated numeric.ch0.vmd0 metric value to" in msg:
-                new_value = float(msg.split()[-1])
+            if "Updated numeric." in msg:
+                new_value = msg.split()[-1]
                 metric_value_entry.delete(0, tk.END)
-                metric_value_entry.insert(0, f"{new_value:.2f}")
+                metric_value_entry.insert(0, new_value)
         if process and process.is_alive():
             root.after(100, lambda: poll_pipe(conn))
         else:
@@ -249,7 +268,7 @@ def poll_pipe(conn):
         logger.error(f"Polling error: {e}")
 
 def on_stop_button():
-    """ Stop the SDC device service when the stop button is clicked. """
+    """Stop the SDC device service when the stop button is clicked."""
     global process, parent_conn
     if process is not None:
         process.terminate()
@@ -262,7 +281,7 @@ def on_stop_button():
             parent_conn = None
 
 def update_status_label(status, color):
-    """ Update the status label in the GUI. """
+    """Update the status label in the GUI."""
     status_label.config(text=f"Status: {status}", foreground=color)
 
 # GUI Setup using tkinter
