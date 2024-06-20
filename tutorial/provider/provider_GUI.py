@@ -82,7 +82,7 @@ def simulate_signals(duration_ecg=10, heart_rate=160, duration_spo2=10, mean_spo
     spo2_signal = simulate_spo2(duration=duration_spo2, mean=mean_spo2, std=std_spo2)
     bp_systolic_signal, bp_diastolic_signal = simulate_bp(duration=duration_bp, mean_sys=mean_systolic, std_sys=std_systolic, mean_dia=mean_diastolic, std_dia=std_diastolic)
 
-    return iter(ecg_signal), iter(spo2_signal), iter(bp_systolic_signal)#, iter(bp_diastolic_signal)
+    return iter(ecg_signal), iter(spo2_signal), iter(bp_systolic_signal), iter(bp_diastolic_signal)
 
 def sdc_device_service(conn, adapter, manufacturer, model_name, model_version, model_url, firmware_version, friendly_name,
                        initial_metric_value, active_determination_period, validity, activation_state):
@@ -96,7 +96,7 @@ def sdc_device_service(conn, adapter, manufacturer, model_name, model_version, m
 
     try:
         # Generate simulated signals
-        ecg_signal_iterator, spo2_signal_iterator, bp_systolic_signal_iterator = simulate_signals()
+        ecg_signal_iterator, spo2_signal_iterator, bp_systolic_signal_iterator, bp_diastolic_signal_iterator = simulate_signals()
 
         conn.send("SDC Device service started.")
         child_logger.info("SDC Device service started.")
@@ -140,16 +140,16 @@ def sdc_device_service(conn, adapter, manufacturer, model_name, model_version, m
         while not conn.poll():
             # Continuously update metrics with simulated data
             try:
-                ecg_value = next(ecg_signal_iterator)
+                spo2_value = next(spo2_signal_iterator)
             except StopIteration:
-                ecg_signal_iterator = iter(simulate_signals()[0])
-                ecg_value = next(ecg_signal_iterator)
+                spo2_signal_iterator = iter(simulate_signals()[0])
+                spo2_value = next(spo2_signal_iterator)
 
             try:
-                spo2_value = next(spo2_signal_iterator)
+                ecg_value = next(ecg_signal_iterator)
             except StopIteration:
-                spo2_signal_iterator = iter(simulate_signals()[1])
-                spo2_value = next(spo2_signal_iterator)
+                ecg_signal_iterator = iter(simulate_signals()[1])
+                ecg_value = next(ecg_signal_iterator)
 
             try:
                 bp_systolic_value = next(bp_systolic_signal_iterator)
@@ -157,11 +157,11 @@ def sdc_device_service(conn, adapter, manufacturer, model_name, model_version, m
                 bp_systolic_signal_iterator = iter(simulate_signals()[2])
                 bp_systolic_value = next(bp_systolic_signal_iterator)
 
-            # try:
-            #     bp_diastolic_value = next(bp_diastolic_signal_iterator)
-            # except StopIteration:
-            #     bp_diastolic_signal_iterator = iter(simulate_signals()[3])
-            #     bp_diastolic_value = next(bp_diastolic_signal_iterator)
+            try:
+                bp_diastolic_value = next(bp_diastolic_signal_iterator)
+            except StopIteration:
+                bp_diastolic_signal_iterator = iter(simulate_signals()[3])
+                bp_diastolic_value = next(bp_diastolic_signal_iterator)
 
             with my_mdib.mdibUpdateTransaction() as mgr:
                 for metricDescr in allMetricDescrs:
@@ -172,12 +172,14 @@ def sdc_device_service(conn, adapter, manufacturer, model_name, model_version, m
                         child_logger.info(f"Updated {metricDescr.handle} metric value to {spo2_value:.2f}")
                     elif metricDescr.handle == "numeric.ch0.vmd1":
                         st = mgr.getMetricState(metricDescr.handle)
-                        st.metricValue.Value = ecg_value
+                        st.metricValue.Value = 100 - ecg_value
                         conn.send(f"Updated {metricDescr.handle} metric value to {ecg_value:.2f}")
                         child_logger.info(f"Updated {metricDescr.handle} metric value to {ecg_value:.2f}")
                     elif metricDescr.handle == "numeric.ch1.vmd0":
                         st = mgr.getMetricState(metricDescr.handle)
-                        st.metricValue.Value = f"{bp_systolic_value:.2f}"#/{bp_systolic_value:.2f}"
+                        bloodpressureValue = bp_systolic_value
+                        st.metricValue.Value=bloodpressureValue
+                        #st.metricValue.Value = f"{bp_systolic_value:.2f}/{bp_diastolic_value:.2f}"
                         conn.send(f"Updated {metricDescr.handle} metric value to {st.metricValue.Value}")
                         child_logger.info(f"Updated {metricDescr.handle} metric value to {st.metricValue.Value}")
 
