@@ -182,7 +182,7 @@ def sdc_device_service(conn, adapter, manufacturer, model_name, model_version, m
                         child_logger.info(f"Updated {metricDescr.handle} metric value to {st.metricValue.Value}")
 
             # Reduce the sleep time to send updates more frequently
-            time.sleep(1)  # Adjusted time for more realistic updates
+            time.sleep(0.3)  # Adjusted time for more realistic updates
 
         sdcDevice.stopAll()
         conn.send("SDC Device service stopped.")

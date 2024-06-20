@@ -1,16 +1,15 @@
 """
-Filename: <consumerr_GUI.py>
+Filename: <consumer_GUI.py>
 Description: <provides a graphical user interface (GUI) for both an SDC (Service-Oriented Device Connectivity) consumer>
 
 Author: <Kevin Wollowski>
 Company: <if(is)>
 Email: <wollowski@internet-sicherheit.de>
-Date: <14.06.2024>
+Date: <18.06.2024>
 Version: <0.1>
 
 License: <MIT License>
 """
-
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext
@@ -19,7 +18,7 @@ import queue
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from sdc11073 import pmtypes
 from sdc11073.namespaces import domTag
 from sdc11073.wsdiscovery import WSDiscoverySingleAdapter
@@ -49,6 +48,7 @@ class SDCGui:
         self.data3 = {'time': [], 'value': []}
         self.running = False  # Flag to control the running state of the client
         self.repaint_needed = False  # Flag to indicate if the plots need repainting
+        self.plot_minutes = 10  # Number of minutes of data to be plotted by default
 
     def create_widgets(self):
         """ Create and layout the GUI components. """
@@ -88,9 +88,9 @@ class SDCGui:
 
         # Set up matplotlib figures and axes for plotting data
         self.fig, (self.ax1, self.ax2, self.ax3) = plt.subplots(3, 1, figsize=(5, 4), dpi=100, sharex=True)
-        self.ax1.set_title("Data1")
-        self.ax2.set_title("Data2")
-        self.ax3.set_title("Data3")
+        self.ax1.set_title("Heartrate")
+        self.ax2.set_title("Sp02")
+        self.ax3.set_title("Bloodpressure")
         self.ax1.set_ylabel("Value")
         self.ax2.set_ylabel("Value")
         self.ax3.set_ylabel("Value")
@@ -108,6 +108,18 @@ class SDCGui:
         # Bottom frame for control buttons and status label
         bottom_frame = ttk.Frame(self.root)
         bottom_frame.pack(side=tk.BOTTOM, fill="x", expand=False, padx=10, pady=10)
+
+        # Frame for plot settings
+        plot_settings_frame = ttk.Frame(bottom_frame)
+        plot_settings_frame.pack(side=tk.TOP, fill="x", expand=False)
+
+        ttk.Label(plot_settings_frame, text="Plot last minutes of data:").pack(side=tk.LEFT, padx=5)
+        self.plot_minutes_var = tk.StringVar(value="10")  # Default value is 10 minutes
+        self.plot_minutes_entry = ttk.Entry(plot_settings_frame, textvariable=self.plot_minutes_var, width=5)
+        self.plot_minutes_entry.pack(side=tk.LEFT, padx=5)
+
+        self.save_button = ttk.Button(plot_settings_frame, text="Save", command=self.save_plot_settings)
+        self.save_button.pack(side=tk.LEFT, padx=5)
 
         # Frame for control buttons
         control_frame = ttk.Frame(bottom_frame)
@@ -141,6 +153,14 @@ class SDCGui:
         self.client_info_frame.grid_rowconfigure(0, weight=1)
         self.data_visualizer_frame.grid_columnconfigure(0, weight=1)
         self.data_visualizer_frame.grid_rowconfigure(0, weight=1)
+
+    def save_plot_settings(self):
+        """ Save the plot settings and log the change. """
+        try:
+            self.plot_minutes = int(self.plot_minutes_var.get())
+            self.add_update_message(f"Updated plot duration to the last {self.plot_minutes} minutes.")
+        except ValueError:
+            self.add_update_message(f"Invalid input for plot duration. Please enter a valid number.")
 
     def run_sdc_client(self):
         """ Start the SDC client service in a separate thread. """
@@ -202,7 +222,7 @@ class SDCGui:
 
     def update_gui_with_text(self, text):
         """ Add a text update to the console log. """
-        timestamp = datetime.now().strftime("%d:%m:%Y %H:%M:%S.%f")[:-3]
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         self.add_update_message(f"{timestamp} - {text}")
 
     def add_update_message(self, message):
@@ -240,19 +260,36 @@ class SDCGui:
         try:
             value = float(value)
             current_time = datetime.now()
-            # Append data and plot based on the handle
+
+            # Append data and remove old data based on the configured plot duration
             if "numeric.ch0.vmd0" in handle:
                 self.data1['time'].append(current_time)
                 self.data1['value'].append(value)
+                self.data1['time'] = [t for t in self.data1['time'] if (current_time - t).total_seconds() < self.plot_minutes * 60]
+                self.data1['value'] = self.data1['value'][-len(self.data1['time']):]
+                self.ax1.clear()
+                self.ax1.set_title("Heartrate")
+                self.ax1.set_ylabel("Value")
                 self.ax1.plot(self.data1['time'], self.data1['value'], 'b-')
-            elif "numeric.ch1.vmd0" in handle:
+            elif "numeric.ch0.vmd1" in handle:
                 self.data2['time'].append(current_time)
                 self.data2['value'].append(value)
+                self.data2['time'] = [t for t in self.data2['time'] if (current_time - t).total_seconds() < self.plot_minutes * 60]
+                self.data2['value'] = self.data2['value'][-len(self.data2['time']):]
+                self.ax2.clear()
+                self.ax2.set_title("Sp02")
+                self.ax2.set_ylabel("Value")
                 self.ax2.plot(self.data2['time'], self.data2['value'], 'r-')
-            elif "numeric.ch0.vmd1" in handle:
+            elif "numeric.ch1.vmd0" in handle:
                 self.data3['time'].append(current_time)
                 self.data3['value'].append(value)
+                self.data3['time'] = [t for t in self.data3['time'] if (current_time - t).total_seconds() < self.plot_minutes * 60]
+                self.data3['value'] = self.data3['value'][-len(self.data3['time']):]
+                self.ax3.clear()
+                self.ax3.set_title("Bloodpressure")
+                self.ax3.set_ylabel("Value")
                 self.ax3.plot(self.data3['time'], self.data3['value'], 'g-')
+
             self.repaint_needed = True  # Flag repaint needed
         except ValueError:
             pass
@@ -321,11 +358,11 @@ class SDCGui:
                     except Exception as e:
                         print(f"Problem in discovery, ignoring it: {e}")
             while self.running:
-                time.sleep(0.1)  # Polling interval
+                time.sleep(0.1)
         except KeyboardInterrupt:
             pass
         finally:
-            myDiscovery.stop()  # Stop WS-Discovery when done
+            myDiscovery.stop()
 
 def main():
     """ Main function to run the SDCGui application. """
