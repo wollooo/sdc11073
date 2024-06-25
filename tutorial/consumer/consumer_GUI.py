@@ -5,11 +5,13 @@ Description: <provides a graphical user interface (GUI) for both an SDC (Service
 Author: <Kevin Wollowski>
 Company: <if(is)>
 Email: <wollowski@internet-sicherheit.de>
-Date: <18.06.2024>
-Version: <0.1>
+Date: 25.06.2024>
+Version: <0.3>
 
 License: <MIT License>
 """
+
+
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext
@@ -48,12 +50,22 @@ class SDCGui:
         self.data3 = {'time': [], 'value': []}
         self.running = False  # Flag to control the running state of the client
         self.repaint_needed = False  # Flag to indicate if the plots need repainting
-        self.plot_minutes = 10  # Number of minutes of data to be plotted by default
+        self.plot_minutes = 2  # Number of minutes of data to be plotted by default
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)  # Handle window close event
+
+    def on_closing(self):
+        """ Handle the window close event to clean up resources and stop the client. """
+        if self.running:
+            self.running = False
+            if hasattr(self, 'worker_thread'):  # Check if the worker thread exists
+                self.worker_thread.join()  # Wait for the thread to finish
+        self.root.quit()  # Stop the mainloop
+        self.root.destroy()  # Close the Tkinter window
 
     def create_widgets(self):
         """ Create and layout the GUI components. """
-        self.root.geometry("800x600")  # Set window size
-        self.root.minsize(600, 400)  # Set minimum window size
+        self.root.geometry("900x700")  # Set window size
+        self.root.minsize(700, 500)  # Set minimum window size
 
         self.notebook = ttk.Notebook(self.root)  # Create a notebook for tabs
         self.notebook.pack(expand=1, fill="both")
@@ -87,8 +99,9 @@ class SDCGui:
         self.notebook.add(self.data_visualizer_frame, text="Data Visualizer")  # Add "Data Visualizer" tab
 
         # Set up matplotlib figures and axes for plotting data
-        self.fig, (self.ax1, self.ax2, self.ax3) = plt.subplots(3, 1, figsize=(5, 4), dpi=100, sharex=True)
-        self.ax1.set_title("Heartrate")
+        self.fig, (self.ax1, self.ax2, self.ax3) = plt.subplots(3, 1, figsize=(7, 6), dpi=100, sharex=True)
+        self.fig.subplots_adjust(hspace=0.5)
+        self.ax1.set_title("Cardiac Activity (ECG)")
         self.ax2.set_title("Sp02")
         self.ax3.set_title("Bloodpressure")
         self.ax1.set_ylabel("Value")
@@ -100,6 +113,14 @@ class SDCGui:
         self.ax1.xaxis.set_major_formatter(DateFormatter("%H:%M:%S"))
         self.ax2.xaxis.set_major_formatter(DateFormatter("%H:%M:%S"))
         self.ax3.xaxis.set_major_formatter(DateFormatter("%H:%M:%S"))
+
+        # Enable grid and legends
+        self.ax1.grid(True)
+        self.ax2.grid(True)
+        self.ax3.grid(True)
+        self.ax1.legend(["Value"], loc="upper right")
+        self.ax2.legend(["Value"], loc="upper right")
+        self.ax3.legend(["Value"], loc="upper right")
 
         # Create a canvas for the matplotlib figure
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.data_visualizer_frame)
@@ -114,7 +135,7 @@ class SDCGui:
         plot_settings_frame.pack(side=tk.TOP, fill="x", expand=False)
 
         ttk.Label(plot_settings_frame, text="Plot last minutes of data:").pack(side=tk.LEFT, padx=5)
-        self.plot_minutes_var = tk.StringVar(value="10")  # Default value is 10 minutes
+        self.plot_minutes_var = tk.StringVar(value="2")  # Default value is 2 minutes
         self.plot_minutes_entry = ttk.Entry(plot_settings_frame, textvariable=self.plot_minutes_var, width=5)
         self.plot_minutes_entry.pack(side=tk.LEFT, padx=5)
 
@@ -170,6 +191,7 @@ class SDCGui:
             self.stop_button.config(state=tk.NORMAL)
             self.clear_updates_log()
             self.clear_plots()
+            self.clear_labels()
             self.running = True
             self.worker_thread = threading.Thread(target=self.sdc_client_process)
             self.worker_thread.daemon = True  # Set thread as daemon
@@ -186,6 +208,14 @@ class SDCGui:
             self.stop_button.config(state=tk.DISABLED)
             stop_message = f"{datetime.now().strftime('%d:%m:%Y %H:%M:%S.%f')[:-3]} - Client stopped"
             self.add_update_message(stop_message)
+            self.clear_labels()
+
+    def clear_labels(self):
+        """ Clear the client info labels. """
+        self.uuid_label.config(text="")
+        self.ip_label.config(text="")
+        self.type_label.config(text="")
+        self.client_subscriber_info.config(text="")
 
     def update_gui(self):
         """ Update the GUI with data from the queue. """
@@ -242,7 +272,7 @@ class SDCGui:
         self.data1 = {'time': [], 'value': []}
         self.data2 = {'time': [], 'value': []}
         self.data3 = {'time': [], 'value': []}
-        self.ax1.set_title("Heartrate")
+        self.ax1.set_title("Cardiac Activity (ECG)")
         self.ax2.set_title("Sp02")
         self.ax3.set_title("Bloodpressure")
         self.ax1.set_ylabel("Value")
@@ -252,6 +282,12 @@ class SDCGui:
         self.ax1.xaxis.set_major_formatter(DateFormatter("%H:%M:%S"))
         self.ax2.xaxis.set_major_formatter(DateFormatter("%H:%M:%S"))
         self.ax3.xaxis.set_major_formatter(DateFormatter("%H:%M:%S"))
+        self.ax1.grid(True)
+        self.ax2.grid(True)
+        self.ax3.grid(True)
+        self.ax1.legend(["Current Value"], loc="upper right")
+        self.ax2.legend(["Current Value"], loc="upper right")
+        self.ax3.legend(["Current Value"], loc="upper right")
         self.fig.tight_layout()
         self.canvas.draw()
 
@@ -260,6 +296,7 @@ class SDCGui:
         try:
             value = float(value)
             current_time = datetime.now()
+            value_str = f"{value:.2f}"  # Format value to 2 decimal places
 
             # Append data and remove old data based on the configured plot duration
             if "numeric.ch0.vmd0" in handle:
@@ -268,31 +305,36 @@ class SDCGui:
                 self.data1['time'] = [t for t in self.data1['time'] if (current_time - t).total_seconds() < self.plot_minutes * 60]
                 self.data1['value'] = self.data1['value'][-len(self.data1['time']):]
                 self.ax1.clear()
-                self.ax1.set_title("Heartrate")
+                self.ax1.set_title(f"Cardiac Activity (ECG)")
                 self.ax1.set_ylabel("Value")
-                self.ax1.plot(self.data1['time'], self.data1['value'], 'b-')
+                self.ax1.plot(self.data1['time'], self.data1['value'], 'b-', label=f"Current Value: {value_str}")
+                self.ax1.legend(loc="upper right")
             elif "numeric.ch0.vmd1" in handle:
                 self.data2['time'].append(current_time)
                 self.data2['value'].append(value)
                 self.data2['time'] = [t for t in self.data2['time'] if (current_time - t).total_seconds() < self.plot_minutes * 60]
                 self.data2['value'] = self.data2['value'][-len(self.data2['time']):]
                 self.ax2.clear()
-                self.ax2.set_title("Sp02")
+                self.ax2.set_title(f"Sp02")
                 self.ax2.set_ylabel("Value")
-                self.ax2.plot(self.data2['time'], self.data2['value'], 'r-')
+                self.ax2.plot(self.data2['time'], self.data2['value'], 'r-', label=f"Current Value: {value_str}")
+                self.ax2.legend(loc="upper right")
             elif "numeric.ch1.vmd0" in handle:
                 self.data3['time'].append(current_time)
                 self.data3['value'].append(value)
                 self.data3['time'] = [t for t in self.data3['time'] if (current_time - t).total_seconds() < self.plot_minutes * 60]
                 self.data3['value'] = self.data3['value'][-len(self.data3['time']):]
                 self.ax3.clear()
-                self.ax3.set_title("Bloodpressure")
+                self.ax3.set_title(f"Bloodpressure")
                 self.ax3.set_ylabel("Value")
-                self.ax3.plot(self.data3['time'], self.data3['value'], 'g-')
+                self.ax3.plot(self.data3['time'], self.data3['value'], 'g-', label=f"Current Value: {value_str}")
+                self.ax3.legend(loc="upper right")
 
             self.repaint_needed = True  # Flag repaint needed
+            self.fig.tightlayout()
         except ValueError:
             pass
+
 
     def sdc_client_process(self):
         """ SDC client process to handle discovery and data retrieval. """
